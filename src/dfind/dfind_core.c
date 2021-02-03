@@ -21,7 +21,9 @@ static uuid_t pool_uuid;
 static uuid_t cont_uuid;
 static daos_handle_t poh;
 static daos_handle_t coh;
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
 static char *svc;
+#endif
 static char *dfs_prefix;
 static int rank, ranks;
 
@@ -326,7 +328,9 @@ int dfind_main (int argc, char** argv)
 
         { "pool",     required_argument, NULL, 'x' },
         { "cont",     required_argument, NULL, 'y' },
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
         { "svcl",     required_argument, NULL, 'z' },
+#endif
         { "prefix",   required_argument, NULL, 'X' },
         { "stonewall", required_argument, NULL, 'W' },
 
@@ -509,9 +513,11 @@ int dfind_main (int argc, char** argv)
 		    exit(1);
 	    }
     	    break;
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
         case 'z':
     	    svc = MFU_STRDUP(optarg);
     	    break;
+#endif
         case 'X':
     	    dfs_prefix = MFU_STRDUP(optarg);
     	    break;
@@ -547,9 +553,11 @@ int dfind_main (int argc, char** argv)
     DCHECK(rc, "Failed to initialize daos");
 
     if (rank == 0) {
-        d_rank_list_t *svcl = NULL;
 	daos_pool_info_t pool_info;
 	daos_cont_info_t co_info;
+
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+        d_rank_list_t *svcl = NULL;
 
 	svcl = daos_rank_list_parse(svc, ":");
 	if (svcl == NULL)
@@ -559,6 +567,10 @@ int dfind_main (int argc, char** argv)
 	rc = daos_pool_connect(pool_uuid, NULL, svcl, DAOS_PC_RW,
 			       &poh, &pool_info, NULL);
 	d_rank_list_free(svcl);
+#else
+	rc = daos_pool_connect(pool_uuid, NULL, DAOS_PC_RW,
+			       &poh, &pool_info, NULL);
+#endif
 	DCHECK(rc, "Failed to connect to pool");
 
 	rc = daos_cont_open(poh, cont_uuid, DAOS_COO_RW, &coh, &co_info, NULL);
@@ -796,7 +808,10 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
     char *cont_str = getenv("DAOS_CONT");
     uuid_parse(cont_str, cont_uuid);
 
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
     svc = getenv("DAOS_SVCL");
+#endif
+
     dfs_prefix = getenv("DAOS_FUSE");
 
     start_time = MPI_Wtime();
@@ -805,9 +820,11 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
     DCHECK(rc, "Failed to initialize daos");
 
     if (rank == 0) {
-        d_rank_list_t *svcl = NULL;
 	daos_pool_info_t pool_info;
 	daos_cont_info_t co_info;
+
+#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
+        d_rank_list_t *svcl = NULL;
 
 	svcl = daos_rank_list_parse(svc, ":");
 	if (svcl == NULL)
@@ -817,6 +834,10 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
 	rc = daos_pool_connect(pool_uuid, NULL, svcl, DAOS_PC_RW,
 			       &poh, &pool_info, NULL);
 	d_rank_list_free(svcl);
+#else
+	rc = daos_pool_connect(pool_uuid, NULL, DAOS_PC_RW,
+			       &poh, &pool_info, NULL);
+#endif
 	DCHECK(rc, "Failed to connect to pool");
 
 	rc = daos_cont_open(poh, cont_uuid, DAOS_COO_RW, &coh, &co_info, NULL);
