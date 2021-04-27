@@ -22,7 +22,7 @@
 #define MFU_IO_USLEEP (100)
 
 static int mpi_rank;
-dfs_t *dfs;
+dfs_t *dfind_dfs;
 struct d_hash_table *dir_hash;
 
 struct mfu_dir_hdl {
@@ -99,9 +99,9 @@ lookup_insert_dir(const char *name)
         strncpy(hdl->name, name, PATH_MAX-1);
         hdl->name[PATH_MAX-1] = '\0';
 
-        rc = dfs_lookup(dfs, name, O_RDWR, &hdl->oh, NULL, NULL);
+        rc = dfs_lookup(dfind_dfs, name, O_RDWR, &hdl->oh, NULL, NULL);
 	if (rc) {
-		fprintf(stderr, "dfs_lookup() of %s Failed\n", name);
+		fprintf(stderr, "dfs_lookup() of %s Failed (%d)\n", name, rc);
 		return NULL;
 	}
 
@@ -309,7 +309,7 @@ int mfu_lstat(const char* path, struct stat* buf)
 	    return ENOENT;
     }
 
-    rc = dfs_stat(dfs, parent, name, buf);
+    rc = dfs_stat(dfind_dfs, parent, name, buf);
     if (rc) {
 	    fprintf(stderr, "dfs_stat %s failed (%d)\n", name);
 	    return rc;
@@ -761,7 +761,7 @@ DIR* mfu_opendir(const char* dir, int *nr)
     if (dirp == NULL)
 	    return NULL;
 
-    rc = dfs_lookup(dfs, dir, O_RDWR, &dirp->dir, NULL, NULL);
+    rc = dfs_lookup(dfind_dfs, dir, O_RDWR, &dirp->dir, NULL, NULL);
     if (rc) {
 	    free(dirp);
 	    fprintf(stderr, "dfs_lookup %s failed (%d)\n", dir, rc);
@@ -819,7 +819,7 @@ struct dirent* mfu_readdir(DIR* _dirp)
     dirp->num_ents = NUM_DIRENTS;
 
     while (!daos_anchor_is_eof(&dirp->anchor)) {
-	    rc = dfs_readdir(dfs, dirp->dir, &dirp->anchor, &dirp->num_ents,
+	    rc = dfs_readdir(dfind_dfs, dirp->dir, &dirp->anchor, &dirp->num_ents,
 			     dirp->ents);
 	    if (rc)
 		    return NULL;

@@ -24,10 +24,10 @@ static daos_handle_t coh;
 #if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
 static char *svc;
 #endif
-static char *dfs_prefix;
+static char *dfs_prefix = NULL;
 static int rank, ranks;
 
-extern dfs_t *dfs;
+extern dfs_t *dfind_dfs;
 extern struct d_hash_table *dir_hash;
 extern double start_time;
 extern int stonewall;
@@ -71,7 +71,7 @@ HandleDistribute(enum handleType type)
                 else if (type == CONT_HANDLE)
                         rc = daos_cont_local2global(coh, &global);
                 else
-                        rc = dfs_local2global(dfs, &global);
+                        rc = dfs_local2global(dfind_dfs, &global);
                 DCHECK(rc, "Failed to get global handle size");
         }
 
@@ -88,7 +88,7 @@ HandleDistribute(enum handleType type)
                 else if (type == CONT_HANDLE)
                         rc = daos_cont_local2global(coh, &global);
                 else
-                        rc = dfs_local2global(dfs, &global);
+                        rc = dfs_local2global(dfind_dfs, &global);
                 DCHECK(rc, "Failed to create global handle");
         }
 
@@ -100,7 +100,7 @@ HandleDistribute(enum handleType type)
                 else if (type == CONT_HANDLE)
                         rc = daos_cont_global2local(poh, global, &coh);
                 else
-                        rc = dfs_global2local(poh, coh, 0, global, &dfs);
+                        rc = dfs_global2local(poh, coh, 0, global, &dfind_dfs);
                 DCHECK(rc, "Failed to get local handle");
         }
 
@@ -211,13 +211,26 @@ static void mfu_flist_pred(mfu_flist flist, mfu_pred* p)
 static mfu_pred_times* get_mtimes(const char* file)
 {
     mfu_param_path param_path;
+
     mfu_param_path_set(file, &param_path);
     if (! param_path.path_stat_valid) {
         return NULL;
     }
+
     mfu_pred_times* t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
     mfu_stat_get_mtimes(&param_path.path_stat, &t->secs, &t->nsecs);
     mfu_param_path_free(&param_path);
+#if 0
+    int rc; 
+    struct stat buf;
+
+    rc = lstat(file, &buf);
+    if (rc != 0)
+	    return NULL;
+
+    mfu_pred_times* t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
+    mfu_stat_get_mtimes(&buf, &t->secs, &t->nsecs);
+#endif
     return t;
 }
 
@@ -576,8 +589,9 @@ int dfind_main (int argc, char** argv)
 	rc = daos_cont_open(poh, cont_uuid, DAOS_COO_RW, &coh, &co_info, NULL);
 	DCHECK(rc, "Failed to open container");
 
-	rc = dfs_mount(poh, coh, O_RDWR, &dfs);
+	rc = dfs_mount(poh, coh, O_RDWR, &dfind_dfs);
 	DCHECK(rc, "Failed to mount DFS namespace");
+	printf("mounted dfs");
     }
 
     HandleDistribute(POOL_HANDLE);
@@ -585,7 +599,7 @@ int dfind_main (int argc, char** argv)
     HandleDistribute(DFS_HANDLE);
 
     if (dfs_prefix) {
-	    rc = dfs_set_prefix(dfs, dfs_prefix);
+	    rc = dfs_set_prefix(dfind_dfs, dfs_prefix);
 	    DCHECK(rc, "Failed to set DFS Prefix");
     }
 
@@ -738,7 +752,7 @@ int dfind_main (int argc, char** argv)
     if (dir_hash)
       d_hash_table_destroy(dir_hash, true /* force */);
 
-    rc = dfs_umount(dfs);
+    rc = dfs_umount(dfind_dfs);
     DCHECK(rc, "Failed to umount DFS namespace");
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -843,7 +857,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
 	rc = daos_cont_open(poh, cont_uuid, DAOS_COO_RW, &coh, &co_info, NULL);
 	DCHECK(rc, "Failed to open container");
 
-	rc = dfs_mount(poh, coh, O_RDWR, &dfs);
+	rc = dfs_mount(poh, coh, O_RDWR, &dfind_dfs);
 	DCHECK(rc, "Failed to mount DFS namespace");
     }
 
@@ -852,7 +866,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
     HandleDistribute(DFS_HANDLE);
 
     if (dfs_prefix) {
-	    rc = dfs_set_prefix(dfs, dfs_prefix);
+	    rc = dfs_set_prefix(dfind_dfs, dfs_prefix);
 	    DCHECK(rc, "Failed to set DFS Prefix");
     }
 
@@ -975,7 +989,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
     if (dir_hash)
       d_hash_table_destroy(dir_hash, true /* force */);
 
-    rc = dfs_umount(dfs);
+    rc = dfs_umount(dfind_dfs);
     DCHECK(rc, "Failed to umount DFS namespace");
     MPI_Barrier(MPI_COMM_WORLD);
 
