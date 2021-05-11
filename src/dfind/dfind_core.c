@@ -828,8 +828,6 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
 
     dfs_prefix = getenv("DAOS_FUSE");
 
-    start_time = MPI_Wtime();
-
     rc = daos_init();
     DCHECK(rc, "Failed to initialize daos");
 
@@ -899,6 +897,8 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
     /* paths to walk */
     int numpaths = 0;
     mfu_param_path* paths = NULL;
+
+    start_time = MPI_Wtime();
 
     if (opt->workdir) {
         /* got a path to walk */
