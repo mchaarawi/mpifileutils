@@ -24,7 +24,7 @@ static daos_handle_t coh;
 #if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
 static char *svc;
 #endif
-static char *dfs_prefix = NULL;
+static char *dfs_prefix;
 static int rank, ranks;
 
 extern dfs_t *dfind_dfs;
@@ -210,6 +210,7 @@ static void mfu_flist_pred(mfu_flist flist, mfu_pred* p)
  * return NULL on error */
 static mfu_pred_times* get_mtimes(const char* file)
 {
+#if 1
     mfu_param_path param_path;
 
     mfu_param_path_set(file, &param_path);
@@ -220,6 +221,8 @@ static mfu_pred_times* get_mtimes(const char* file)
     mfu_pred_times* t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
     mfu_stat_get_mtimes(&param_path.path_stat, &t->secs, &t->nsecs);
     mfu_param_path_free(&param_path);
+    return t;
+#endif
 #if 0
     int rc; 
     struct stat buf;
@@ -230,8 +233,9 @@ static mfu_pred_times* get_mtimes(const char* file)
 
     mfu_pred_times* t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
     mfu_stat_get_mtimes(&buf, &t->secs, &t->nsecs);
-#endif
+
     return t;
+#endif
 }
 
 static int add_type(mfu_pred* p, char t)
@@ -591,7 +595,6 @@ int dfind_main (int argc, char** argv)
 
 	rc = dfs_mount(poh, coh, O_RDWR, &dfind_dfs);
 	DCHECK(rc, "Failed to mount DFS namespace");
-	printf("mounted dfs");
     }
 
     HandleDistribute(POOL_HANDLE);
@@ -898,6 +901,7 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
     int numpaths = 0;
     mfu_param_path* paths = NULL;
 
+    MPI_Barrier(MPI_COMM_WORLD);
     start_time = MPI_Wtime();
 
     if (opt->workdir) {
@@ -939,6 +943,8 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
         }
     }
 
+    double end_time = MPI_Wtime();
+
     if (rank == 0)
 	    MFU_LOG(MFU_LOG_INFO, "Full Scanned List:");
     mfu_flist_print_summary(flist);
@@ -954,12 +960,22 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
     total = mfu_flist_global_size(flist);
     matched = mfu_flist_global_size(flist2);
 
-    res->total_files = total;
-    res->found_files = matched;
-
     if (rank == 0) {
 	    printf("MATCHED %llu/%llu\n", matched, total);
     }
+
+    //res->total_files = total;
+    //res->found_files = matched;
+    //double runtime = end_time - start_time;
+    //MPI_Allreduce(&runtime, &res->runtime, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+    res->total_files = mfu_flist_size(flist);
+    res->found_files = mfu_flist_size(flist2);
+    res->errors = 0;
+    res->unknown_file = 0;
+    res->runtime = end_time - start_time;
+    res->rate = res->total_files / res->runtime;
+    res->com = MPI_COMM_WORLD;
 
     /* free off the filtered list */
     mfu_flist_free(&flist2);
@@ -1006,9 +1022,5 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
 
     mfu_finalize();
 
-    double end_time = MPI_Wtime();
-    res->runtime = end_time - start_time;
-    res->rate = res->total_files / res->runtime;
-    res->com = MPI_COMM_WORLD;
     return res;
 }

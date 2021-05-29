@@ -63,14 +63,17 @@ typedef struct {
 } pfind_monitoring_t;
 
 typedef struct{
+  uint64_t errors;
+  uint64_t unknown_file;
+
   uint64_t found_files;
   uint64_t total_files;
-  double runtime;
-  double rate;
-  uint64_t errors;
 
-  uint64_t unknown_file;
   uint64_t checked_dirents;
+
+  double rate;
+  double runtime;
+
   pfind_monitoring_t monitor;
   MPI_Comm com;
 } pfind_find_results_t;
