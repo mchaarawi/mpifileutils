@@ -17,13 +17,18 @@
 #include "../common/mfu.h"
 #include "common.h"
 
+#if defined(DAOS_API_VERSION_MAJOR) && defined(DAOS_API_VERSION_MINOR)
+#define CHECK_DAOS_API_VERSION(major, minor)                                            \
+        ((DAOS_API_VERSION_MAJOR > (major))                                             \
+        || (DAOS_API_VERSION_MAJOR == (major) && DAOS_API_VERSION_MINOR >= (minor)))
+#else
+#define CHECK_DAOS_API_VERSION(major, minor) 0
+#endif
+
 static uuid_t pool_uuid;
 static uuid_t cont_uuid;
 static daos_handle_t poh;
 static daos_handle_t coh;
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-static char *svc;
-#endif
 static char *dfs_prefix;
 static int rank, ranks;
 
@@ -210,32 +215,31 @@ static void mfu_flist_pred(mfu_flist flist, mfu_pred* p)
  * return NULL on error */
 static mfu_pred_times* get_mtimes(const char* file)
 {
-#if 1
-    mfu_param_path param_path;
+    char *str = getenv("MFU_POSIX_TS");
+    if (str == NULL || strcmp(str, "0") == 0) {
+        mfu_param_path param_path;
 
-    mfu_param_path_set(file, &param_path);
-    if (! param_path.path_stat_valid) {
-        return NULL;
-    }
+	mfu_param_path_set(file, &param_path);
+	if (! param_path.path_stat_valid) {
+            return NULL;
+	}
 
-    mfu_pred_times* t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
-    mfu_stat_get_mtimes(&param_path.path_stat, &t->secs, &t->nsecs);
-    mfu_param_path_free(&param_path);
-    return t;
-#endif
-#if 0
-    int rc; 
-    struct stat buf;
+	mfu_pred_times* t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
+	mfu_stat_get_mtimes(&param_path.path_stat, &t->secs, &t->nsecs);
+	mfu_param_path_free(&param_path);
+	return t;
+    } else {
+	int rc; 
+	struct stat buf;
 
-    rc = lstat(file, &buf);
-    if (rc != 0)
+	rc = lstat(file, &buf);
+	if (rc != 0)
 	    return NULL;
 
-    mfu_pred_times* t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
-    mfu_stat_get_mtimes(&buf, &t->secs, &t->nsecs);
-
-    return t;
-#endif
+	mfu_pred_times* t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
+	mfu_stat_get_mtimes(&buf, &t->secs, &t->nsecs);
+	return t;
+    }
 }
 
 static int add_type(mfu_pred* p, char t)
@@ -296,6 +300,8 @@ static void pred_commit (mfu_pred* p)
 
 int dfind_main (int argc, char** argv)
 {
+    char *pool_str, *cont_str;
+
     /* initialize MPI */
     MPI_Init(&argc, &argv);
     mfu_init();
@@ -517,24 +523,11 @@ int dfind_main (int argc, char** argv)
     	    break;
 
         case 'x':
-	    ret = uuid_parse(optarg, pool_uuid);
-	    if (ret) {
-		    printf("%s: invalid pool uuid %s\n", argv[0], optarg);
-		    exit(1);
-	    }
+	    pool_str = MFU_STRDUP(optarg);
     	    break;
         case 'y':
-	    ret = uuid_parse(optarg, cont_uuid);
-	    if (ret) {
-		    printf("%s: invalid container uuid %s\n", argv[0], optarg);
-		    exit(1);
-	    }
+	    cont_str = MFU_STRDUP(optarg);
     	    break;
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-        case 'z':
-    	    svc = MFU_STRDUP(optarg);
-    	    break;
-#endif
         case 'X':
     	    dfs_prefix = MFU_STRDUP(optarg);
     	    break;
@@ -573,29 +566,34 @@ int dfind_main (int argc, char** argv)
 	daos_pool_info_t pool_info;
 	daos_cont_info_t co_info;
 
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-        d_rank_list_t *svcl = NULL;
-
-	svcl = daos_rank_list_parse(svc, ":");
-	if (svcl == NULL)
-		MPI_Abort(MPI_COMM_WORLD, -1);
-
-	/** Connect to DAOS pool */
-	rc = daos_pool_connect(pool_uuid, NULL, svcl, DAOS_PC_RW,
-			       &poh, &pool_info, NULL);
-	d_rank_list_free(svcl);
+#if CHECK_DAOS_API_VERSION(1, 4)
+	rc = daos_pool_connect(pool_str, NULL, DAOS_PC_RW, &poh, &pool_info, NULL);
 #else
-	rc = daos_pool_connect(pool_uuid, NULL, DAOS_PC_RW,
-			       &poh, &pool_info, NULL);
+	if (uuid_parse(pool_str, pool_uuid) < 0) {
+		printf("failed to parse pool uuid: %s\n", pool_str);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+	}
+	rc = daos_pool_connect(pool_uuid, NULL, DAOS_PC_RW, &poh, &pool_info, NULL);
 #endif
 	DCHECK(rc, "Failed to connect to pool");
 
+#if CHECK_DAOS_API_VERSION(1, 4)
+	rc = daos_cont_open(poh, cont_str, DAOS_COO_RW, &coh, &co_info, NULL);
+#else
+	if (uuid_parse(cont_str, cont_uuid) < 0) {
+		printf("failed to parse cont uuid: %s\n", cont_str);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+	}
 	rc = daos_cont_open(poh, cont_uuid, DAOS_COO_RW, &coh, &co_info, NULL);
+#endif
 	DCHECK(rc, "Failed to open container");
 
 	rc = dfs_mount(poh, coh, O_RDWR, &dfind_dfs);
 	DCHECK(rc, "Failed to mount DFS namespace");
     }
+
+    free(pool_str);
+    free(cont_str);
 
     HandleDistribute(POOL_HANDLE);
     HandleDistribute(CONT_HANDLE);
@@ -820,14 +818,16 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
 
     /* use the env variables to retrieve the pool and container */
     char *pool_str = getenv("DAOS_POOL");
-    uuid_parse(pool_str, pool_uuid);
+    if (pool_str == NULL) {
+	    printf("DAOS_POOL env variable is not set\n");
+	    MPI_Abort(MPI_COMM_WORLD, -1);
+    }
 
     char *cont_str = getenv("DAOS_CONT");
-    uuid_parse(cont_str, cont_uuid);
-
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-    svc = getenv("DAOS_SVCL");
-#endif
+    if (cont_str == NULL) {
+	    printf("DAOS_CONT env variable is not set\n");
+	    MPI_Abort(MPI_COMM_WORLD, -1);
+    }
 
     dfs_prefix = getenv("DAOS_FUSE");
 
@@ -838,24 +838,26 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
 	daos_pool_info_t pool_info;
 	daos_cont_info_t co_info;
 
-#if !defined(DAOS_API_VERSION_MAJOR) || DAOS_API_VERSION_MAJOR < 1
-        d_rank_list_t *svcl = NULL;
-
-	svcl = daos_rank_list_parse(svc, ":");
-	if (svcl == NULL)
-		MPI_Abort(MPI_COMM_WORLD, -1);
-
-	/** Connect to DAOS pool */
-	rc = daos_pool_connect(pool_uuid, NULL, svcl, DAOS_PC_RW,
-			       &poh, &pool_info, NULL);
-	d_rank_list_free(svcl);
+#if CHECK_DAOS_API_VERSION(1, 4)
+	rc = daos_pool_connect(pool_str, NULL, DAOS_PC_RW, &poh, &pool_info, NULL);
 #else
-	rc = daos_pool_connect(pool_uuid, NULL, DAOS_PC_RW,
-			       &poh, &pool_info, NULL);
+	if (uuid_parse(pool_str, pool_uuid) < 0) {
+		printf("failed to parse pool uuid: %s\n", pool_str);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+	}
+	rc = daos_pool_connect(pool_uuid, NULL, DAOS_PC_RW, &poh, &pool_info, NULL);
 #endif
 	DCHECK(rc, "Failed to connect to pool");
 
+#if CHECK_DAOS_API_VERSION(1, 4)
+	rc = daos_cont_open(poh, cont_str, DAOS_COO_RW, &coh, &co_info, NULL);
+#else
+	if (uuid_parse(cont_str, cont_uuid) < 0) {
+		printf("failed to parse cont uuid: %s\n", cont_str);
+		MPI_Abort(MPI_COMM_WORLD, -1);
+	}
 	rc = daos_cont_open(poh, cont_uuid, DAOS_COO_RW, &coh, &co_info, NULL);
+#endif
 	DCHECK(rc, "Failed to open container");
 
 	rc = dfs_mount(poh, coh, O_RDWR, &dfind_dfs);
