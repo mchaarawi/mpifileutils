@@ -887,12 +887,17 @@ pfind_find_results_t * pfind_find(pfind_options_t * opt)
     }
 
     if (opt->timestamp_file) {
-	    t = get_mtimes(opt->timestamp_file);
-	    if (t == NULL) {
-		    if (rank == 0)
-			    printf("can't find file %s\n", mnewer);
-		    exit(1);
+	    if (rank == 0) {
+		    t = get_mtimes(opt->timestamp_file);
+		    if (t == NULL) {
+			    printf("can't find timestamp file %s\n", opt->timestamp_file);
+			    MFU_ABORT(-1, "can't find timestamp file %s\n", opt->timestamp_file);
+		    }
+	    } else {
+		    t = (mfu_pred_times*) MFU_MALLOC(sizeof(mfu_pred_times));
 	    }
+	    MPI_Bcast(&t->secs, 1, MPI_UINT64_T, 0, MPI_COMM_WORLD);
+	    MPI_Bcast(&t->nsecs, 1, MPI_UINT64_T, 0, MPI_COMM_WORLD);
 	    mfu_pred_add(pred_head, MFU_PRED_MNEWER, (void *)t);
     }
 
